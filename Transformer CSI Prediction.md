@@ -161,11 +161,11 @@ for epoch in range(num_epochs):
 # torch.save(model.state_dict(), 'transformer_csi_model.pth')
 ```
 
+## 完整实现论文 'Transformer Network Based Channel Prediction for CSI Feedback Enhancement in AI-Native Air Interface'
 
 ```
 
 """
-完整实现论文 'Transformer Network Based Channel Prediction for CSI Feedback Enhancement in AI-Native Air Interface'
 该脚本包含:
 1.  一个合成CSI数据集，模拟无线信道的时间相关性。
 2.  一个标准的PyTorch Dataset类，用于处理时序数据。
