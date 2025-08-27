@@ -503,6 +503,8 @@ if __name__ == '__main__':
     # 7. 可视化结果
     print("正在生成预测结果可视化图表...")
     plot_results(model, test_loader, scaler, config)# -*- coding: utf-8 -*-
+
+——————
 """
 完整实现论文 'Transformer Network Based Channel Prediction for CSI Feedback Enhancement in AI-Native Air Interface'
 该脚本包含:
