@@ -51,31 +51,29 @@ import torch
 import torch.nn as nn
 import math
 
-class MultiHeadAttention(nn.Module):
+class MHA(nn.Module):
     """
-    一个标准的多头注意力模块实现
+    标准的多头注意力
     """
     def __init__(self, embed_dim, num_heads):
         """
         初始化函数
         参数:
-            embed_dim (int): 输入的词嵌入维度 (d_model)
-            num_heads (int): 注意力头的数量 (h)
+        embed_dim (int): 输入的词嵌入维度 (d_model)
+        num_heads (int): 注意力头的数量 (h)
         """
-        super(MultiHeadAttention, self).__init__()
+        super().__init__()
 
-        # 确保 embed_dim 可以被 num_heads 整除
-        assert embed_dim % num_heads == 0, "embed_dim 必须能被 num_heads 整除"
+        assert embed_dim % num_heads == 0, "embed_dim must be divisible by num_heads"
 
         self.embed_dim = embed_dim
         self.num_heads = num_heads
-        self.head_dim = embed_dim // num_heads # 每个头的维度 (d_k)
+        self.head_dim = embed_dim // num_heads
 
-        # 定义 Q, K, V 的线性投射层
-        # 这里我们用一个大的线性层然后切分，效率更高
-        self.wqkv = nn.Linear(embed_dim, embed_dim * 3)
+        self.w_q = nn.Linear(embed_dim, embed_dim)
+        self.w_k = nn.Linear(embed_dim, embed_dim)
+        self.w_v = nn.Linear(embed_dim, embed_dim)
 
-        # 定义最后的输出线性层
         self.fc_out = nn.Linear(embed_dim, embed_dim)
 
     def split_heads(self, x, batch_size):
@@ -83,94 +81,75 @@ class MultiHeadAttention(nn.Module):
         将维度为 (batch_size, seq_len, embed_dim) 的张量
         拆分成 (batch_size, num_heads, seq_len, head_dim) 以便并行计算
         """
-        # x shape: (batch_size, seq_len, embed_dim)
         x = x.view(batch_size, -1, self.num_heads, self.head_dim)
-        # 交换维度 -> (batch_size, num_heads, seq_len, head_dim)
+        # 把维度从 (batch, seq_len, heads, head_dim) 交换成 (batch, heads, seq_len, head_dim)
+        # 便于按头做矩阵乘法与缩放点积注意力。
         return x.transpose(1, 2)
 
-    def scaled_dot_product_attention(self, Q, K, V, mask=None):
+    def scaled_dot_product_attention(self, Q, K ,V , mask=None):
         """
         核心的缩放点积注意力计算
         """
-        # Q, K, V shape: (batch_size, num_heads, seq_len, head_dim)
-
-        # 1. 计算 Q 和 K 的点积 (Attention Scores)
-        # K.transpose(-2, -1) -> (batch_size, num_heads, head_dim, seq_len)
+        # 计算Q和K的点积
         attn_scores = torch.matmul(Q, K.transpose(-2, -1))
-
-        # 2. 缩放
+        # 防止维度爆炸，进行缩放
         attn_scores = attn_scores / math.sqrt(self.head_dim)
-
-        # 3. (可选) 应用 Mask
+        # 如果存在掩码，则将掩码的值设置为负无穷
         if mask is not None:
-            # mask 是一个值为 0 或 -inf 的张量，加到 scores 上
             attn_scores = attn_scores.masked_fill(mask == 0, -1e9)
-
-        # 4. Softmax 得到注意力权重
-        # attn_weights shape: (batch_size, num_heads, seq_len, seq_len)
-        attn_weights = torch.softmax(attn_scores, dim=-1)
-
-        # 5. 权重与 V 相乘
-        # output shape: (batch_size, num_heads, seq_len, head_dim)
+        
+        # softmax
+        attn_weights = torch.softmax(attn_scores, dim=-1)# dim=-1：在张量的最后一维上归一化。
+        # 将注意力权重与V相乘
         output = torch.matmul(attn_weights, V)
 
         return output, attn_weights
 
     def forward(self, q, k, v, mask=None):
         """
-        前向传播
-        输入 q, k, v 的 shape: (batch_size, seq_len, embed_dim)
+        前向传播函数
         """
         batch_size = q.size(0)
 
         # 1. 将 Q, K, V 拼接并通过一个线性层进行投射
         # 为了方便，假设 q, k, v 是相同的输入
         # 在实际的 Transformer 中，Encoder-Decoder Attention 时 k,v 来自 Encoder
-        qkv = self.wqkv(q) # shape: (batch_size, seq_len, embed_dim * 3)
-
+        if k is None: k = q
+        if v is None: v = k
+        
         # 2. 切分成独立的 Q, K, V
-        # .chunk(3, dim=-1) 将最后一个维度平均切成 3 份
-        Q, K, V = qkv.chunk(3, dim=-1)
-        # Q, K, V shape: (batch_size, seq_len, embed_dim)
-
+        Q = self.w_q(q)
+        K = self.w_k(k)
+        V = self.w_v(v)
+        
         # 3. 拆分成多个头
         # Q, K, V shape: (batch_size, num_heads, seq_len, head_dim)
         Q = self.split_heads(Q, batch_size)
         K = self.split_heads(K, batch_size)
         V = self.split_heads(V, batch_size)
 
-        # 4. 计算缩放点积注意力
-        # context shape: (batch_size, num_heads, seq_len, head_dim)
+        # 4. 计算注意力权重
         context, attn_weights = self.scaled_dot_product_attention(Q, K, V, mask)
 
-        # 5. 拼接多头的结果
-        # context shape: (batch_size, seq_len, num_heads, head_dim)
-        context = context.transpose(1, 2).contiguous()
-        # .contiguous() 确保内存是连续的，在 view 之前通常需要
-        context = context.view(batch_size, -1, self.embed_dim)
-        # context shape: (batch_size, seq_len, embed_dim)
+        # 5. 合并多头
+        context = context.transpose(1, 2).contiguous().view(batch_size, -1, self.embed_dim)
 
-        # 6. 通过最后的线性层
-        # output shape: (batch_size, seq_len, embed_dim)
+        # 6. 通过一个线性层进行投射
         output = self.fc_out(context)
 
         return output
 
-# --- 使用示例 ---
-if __name__ == '__main__':
+if __name__ == "__main__":
     batch_size = 4
     seq_len = 10
     embed_dim = 512
     num_heads = 8
 
-    # 创建一个随机输入张量
     x = torch.randn(batch_size, seq_len, embed_dim)
 
-    # 实例化模型
-    mha = MultiHeadAttention(embed_dim, num_heads)
+    mha = MHA(embed_dim, num_heads)
 
-    # 前向传播
-    output = mha.forward(x, x, x) # 在自注意力中，q, k, v 是相同的
+    output = mha.forward(x, x, x)# 在自注意力中，q, k, v 是相同的
 
     # 打印输出的形状
     print(f"输入形状: {x.shape}")
