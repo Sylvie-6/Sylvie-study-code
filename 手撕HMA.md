@@ -266,7 +266,13 @@ if __name__ == "__main__":
   
 
 ---
-## 带最小实现用例
+## 自注意力”实现，接口固定 Q=K=V=x
+只传一个 x（自注意力）；支持同时传 padding 掩码与自定义/因果掩码；可选返回权重。
+SelfAttention：支持
+key_padding_mask（形状 (B, L)，屏蔽 padding）
+attn_mask（形状 (L, L) 或 (B, 1/H, L, L)，布尔或加性皆可）
+causal=True 时自动下三角因果屏蔽
+并带 Dropout 于注意力权重
 ```python
 import torch
 import torch.nn as nn
