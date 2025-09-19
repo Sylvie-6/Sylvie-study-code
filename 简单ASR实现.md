@@ -135,32 +135,96 @@ if __name__ == "__main__":
 **为什么 MFCC 很重要？** 它能有效地捕捉语音的音色信息，同时对噪声和说话人个体差异具有一定的鲁棒性。
 
 **如何自己实现 MFCC？**
-你可以使用 `librosa` 库来计算 MFCC。
 ```python
-# pip install librosa soundfile numpy
-import librosa
-import librosa.display
-import matplotlib.pyplot as plt
 import numpy as np
+import matplotlib.pyplot as plt
+from scipy.io import wavfile
+from scipy.fftpack import dct
+from scipy.signal import resample
 
-# 加载音频文件
-y, sr = librosa.load("hello.wav", sr=16000) # sr=16000 是常见的采样率
+# 1. 读取音频文件（使用 scipy）
+sr, y = wavfile.read(r"D:\PythonProject\QoS\TorchAudio\Lab41-SRI-VOiCES-src-sp0307-ch127535-sg0042.wav")
 
-# 计算 MFCC
-# n_mfcc: 要提取的 MFCC 数量
-# hop_length: 帧移（跳跃长度），通常是帧长的一半
-# n_fft: FFT 的窗口大小，通常是帧长的整数倍
-mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13, hop_length=int(sr*0.01), n_fft=int(sr*0.025))
+# 转为单声道（如果立体声）
+if y.ndim > 1:
+    y = y.mean(axis=1)
 
-# 可视化 MFCC
+# 重采样到 16kHz（可选，确保一致）
+target_sr = 16000
+if sr != target_sr:
+    num_samples = int(len(y) * target_sr / sr)
+    y = resample(y, num_samples)
+    sr = target_sr
+
+# 2. 预加重（Pre-emphasis）
+pre_emphasis = 0.97
+y = np.append(y[0], y[1:] - pre_emphasis * y[:-1])
+
+# 3. 分帧（Framing）
+frame_length = int(0.025 * sr)  # 25ms
+frame_step = int(0.01 * sr)     # 10ms
+frames = []
+for i in range(0, len(y) - frame_length + 1, frame_step):
+    frame = y[i:i + frame_length]
+    frames.append(frame)
+
+frames = np.array(frames)
+
+# 4. 加窗（Hamming Window）
+window = np.hamming(frame_length)
+frames = frames * window
+
+# 5. FFT + 幅度谱
+NFFT = 512  # 通常为 2 的幂
+magnitude_frames = np.abs(np.fft.rfft(frames, NFFT))
+
+# 6. Mel 频带滤波器组（Mel Filter Bank）
+def get_mel_filter_banks(n_fft, sr, n_mels=13):
+    # Mel 频率范围
+    low_freq_mel = 0
+    high_freq_mel = 2595 * np.log10(1 + (sr / 2) / 700)
+    mel_points = np.linspace(low_freq_mel, high_freq_mel, n_mels + 2)
+    hz_points = 700 * (10 ** (mel_points / 2595) - 1)
+
+    # 滤波器组
+    fbank = np.zeros((n_mels, n_fft // 2 + 1))
+    for m in range(1, n_mels + 1):
+        f_m_minus = hz_points[m - 1]
+        f_m = hz_points[m]
+        f_m_plus = hz_points[m + 1]
+
+        for k in range(n_fft // 2 + 1):
+            freq = k * sr / n_fft
+            if freq >= f_m_minus and freq <= f_m:
+                fbank[m - 1, k] = (freq - f_m_minus) / (f_m - f_m_minus)
+            elif freq > f_m and freq <= f_m_plus:
+                fbank[m - 1, k] = (f_m_plus - freq) / (f_m_plus - f_m)
+            else:
+                fbank[m - 1, k] = 0
+    return fbank
+
+# 获取 Mel 滤波器组
+mel_filters = get_mel_filter_banks(NFFT, sr, n_mels=13)
+
+# 应用滤波器组
+energy = np.dot(magnitude_frames, mel_filters.T)
+energy = np.where(energy == 0, np.finfo(float).eps, energy)  # 防止 log(0)
+log_energy = np.log(energy)
+
+# 7. DCT 变换（得到 MFCC）
+mfccs = dct(log_energy, type=2, norm='ortho', axis=1)
+
+# 8. 可视化 MFCC
 plt.figure(figsize=(10, 4))
-librosa.display.specshow(mfccs, x_axis='time')
-plt.colorbar()
-plt.title('MFCC')
+plt.imshow(mfccs.T, origin='lower', aspect='auto', cmap='jet')
+plt.colorbar(label='MFCC Coefficient')
+plt.title('MFCC (Manual Implementation)')
+plt.xlabel('Frame Index')
+plt.ylabel('MFCC Index')
 plt.tight_layout()
 plt.show()
 
-print("MFCC 矩阵形状:", mfccs.shape) # (n_mfcc, number_of_frames)
+print("MFCC 矩阵形状:", mfccs.shape)  # (n_frames, n_mfcc)
 ```
 
 #### 2. 声学模型 (AM)
