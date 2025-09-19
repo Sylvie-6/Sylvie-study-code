@@ -170,8 +170,6 @@ plt.show()
 
 print("MFCC 矩阵形状:", mfccs.shape) # (n_mfcc, number_of_frames)
 ```
-```
-```
 
 #### 2. 声学模型 (AM)
 
