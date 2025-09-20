@@ -82,6 +82,7 @@ mha = MHA(num_head, dimension_k, dimension_v, d_k, d_v, d_o)
 attention, output = mha(q, k, v, mask)
 
 print(attention.size(), output.size())
+```
 
 ---
 
