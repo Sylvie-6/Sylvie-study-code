@@ -261,6 +261,7 @@ if __name__ == "__main__":
 
 ---
 ## 简单清晰版
+```python
 import torch
 import torch.nn as nn
 import math
