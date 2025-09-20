@@ -1,3 +1,90 @@
+# 简单清晰版
+```python
+import torch
+import torch.nn as nn
+import math
+
+class MHA(nn.Module):
+    def __init__(self, num_head, dimension_k, dimension_v, d_k, d_v, d_o, dropout=0.1):
+        super().__init__()
+        self.num_head = num_head
+        self.d_k = d_k
+        self.d_v = d_v
+        self.d_o = d_o
+
+        # 线性映射到多头空间
+        self.fc_q = nn.Linear(dimension_k, num_head * d_k)
+        self.fc_k = nn.Linear(dimension_k, num_head * d_k)
+        self.fc_v = nn.Linear(dimension_v, num_head * d_v)
+
+        self.dropout = nn.Dropout(dropout)
+        self.fc_o = nn.Linear(num_head * d_v, d_o)
+        self.softmax = nn.Softmax(dim=-1)  # 对最后一维(n_k)做softmax
+
+    def forward(self, q, k, v, mask):
+        # q: (b, n_q, dimension_k)
+        # k: (b, n_k, dimension_k)
+        # v: (b, n_v, dimension_v)
+        b, n_q, _ = q.size()
+        _, n_k, _ = k.size()
+        _, n_v, _ = v.size()
+        h = self.num_head
+
+        # 线性映射
+        q = self.fc_q(q)  # (b, n_q, h*d_k)
+        k = self.fc_k(k)  # (b, n_k, h*d_k)
+        v = self.fc_v(v)  # (b, n_v, h*d_v)
+
+        # 变形 → 拆成多头
+        Q = q.view(b, n_q, h, self.d_k).transpose(1, 2)  # (b, h, n_q, d_k)
+        K = k.view(b, n_k, h, self.d_k).transpose(1, 2)  # (b, h, n_k, d_k)
+        V = v.view(b, n_v, h, self.d_v).transpose(1, 2)  # (b, h, n_v, d_v)
+
+        # 注意力分数
+        scores = torch.matmul(Q, K.transpose(-1, -2)) / math.sqrt(self.d_k)  # (b, h, n_q, n_k)
+
+        # 应用mask
+        mask = mask.unsqueeze(1)
+        scores = scores + mask  # mask中允许位置为0，禁止位置为-inf
+
+        # softmax + dropout
+        attn = self.softmax(scores)   # (b, h, n_q, n_k)
+        attn = self.dropout(attn)
+
+        # 加权求和得到值向量
+        head_out = torch.matmul(attn, V)  # (b, h, n_q, d_v)
+
+        # 合并多头
+        head_out = head_out.transpose(1, 2).contiguous().view(b, n_q, h * self.d_v)
+
+        # 输出投影
+        out = self.fc_o(head_out)  # (b, n_q, d_o)
+        return attn, out
+
+
+# ----------- 主代码 -----------
+batch = 10
+num_head = 8
+n_q, n_k, n_v = 4, 4, 4
+dimension_q = dimension_k = 128
+dimension_v = 64
+d_k, d_v, d_o = 16, 16, 8   # h*d_v=128 -> 映射到 d_o=8
+
+q = torch.randn(batch, n_q, dimension_q)
+k = torch.randn(batch, n_k, dimension_k)
+v = torch.randn(batch, n_v, dimension_v)
+
+# 构造一个上三角mask（未来位置置-inf）
+mask = torch.full((batch, n_q, n_k), float('-inf'))
+mask = torch.triu(mask, diagonal=1)  # 保留下三角 ≤0, 对角线以上为 -inf
+
+mha = MHA(num_head, dimension_k, dimension_v, d_k, d_v, d_o)
+attention, output = mha(q, k, v, mask)
+
+print(attention.size(), output.size())
+
+---
+
 ### 第一步：与面试官沟通
 
 在动笔写代码之前，千万不要一言不发地埋头就写。先和面试官沟通，确认需求和假设，这会显得你非常专业。
@@ -258,92 +345,5 @@ if __name__ == "__main__":
   
   这些探索都表明，如何让 Attention 机制在保持强大能力的同时变得更高效，是当前这个领域一个非常活跃的研究方向。”
   
-
----
-## 简单清晰版
-```python
-import torch
-import torch.nn as nn
-import math
-
-class MHA(nn.Module):
-    def __init__(self, num_head, dimension_k, dimension_v, d_k, d_v, d_o, dropout=0.1):
-        super().__init__()
-        self.num_head = num_head
-        self.d_k = d_k
-        self.d_v = d_v
-        self.d_o = d_o
-
-        # 线性映射到多头空间
-        self.fc_q = nn.Linear(dimension_k, num_head * d_k)
-        self.fc_k = nn.Linear(dimension_k, num_head * d_k)
-        self.fc_v = nn.Linear(dimension_v, num_head * d_v)
-
-        self.dropout = nn.Dropout(dropout)
-        self.fc_o = nn.Linear(num_head * d_v, d_o)
-        self.softmax = nn.Softmax(dim=-1)  # 对最后一维(n_k)做softmax
-
-    def forward(self, q, k, v, mask):
-        # q: (b, n_q, dimension_k)
-        # k: (b, n_k, dimension_k)
-        # v: (b, n_v, dimension_v)
-        b, n_q, _ = q.size()
-        _, n_k, _ = k.size()
-        _, n_v, _ = v.size()
-        h = self.num_head
-
-        # 线性映射
-        q = self.fc_q(q)  # (b, n_q, h*d_k)
-        k = self.fc_k(k)  # (b, n_k, h*d_k)
-        v = self.fc_v(v)  # (b, n_v, h*d_v)
-
-        # 变形 → 拆成多头
-        Q = q.view(b, n_q, h, self.d_k).transpose(1, 2)  # (b, h, n_q, d_k)
-        K = k.view(b, n_k, h, self.d_k).transpose(1, 2)  # (b, h, n_k, d_k)
-        V = v.view(b, n_v, h, self.d_v).transpose(1, 2)  # (b, h, n_v, d_v)
-
-        # 注意力分数
-        scores = torch.matmul(Q, K.transpose(-1, -2)) / math.sqrt(self.d_k)  # (b, h, n_q, n_k)
-
-        # 应用mask
-        mask = mask.unsqueeze(1)
-        scores = scores + mask  # mask中允许位置为0，禁止位置为-inf
-
-        # softmax + dropout
-        attn = self.softmax(scores)   # (b, h, n_q, n_k)
-        attn = self.dropout(attn)
-
-        # 加权求和得到值向量
-        head_out = torch.matmul(attn, V)  # (b, h, n_q, d_v)
-
-        # 合并多头
-        head_out = head_out.transpose(1, 2).contiguous().view(b, n_q, h * self.d_v)
-
-        # 输出投影
-        out = self.fc_o(head_out)  # (b, n_q, d_o)
-        return attn, out
-
-
-# ----------- 主代码 -----------
-batch = 10
-num_head = 8
-n_q, n_k, n_v = 4, 4, 4
-dimension_q = dimension_k = 128
-dimension_v = 64
-d_k, d_v, d_o = 16, 16, 8   # h*d_v=128 -> 映射到 d_o=8
-
-q = torch.randn(batch, n_q, dimension_q)
-k = torch.randn(batch, n_k, dimension_k)
-v = torch.randn(batch, n_v, dimension_v)
-
-# 构造一个上三角mask（未来位置置-inf）
-mask = torch.full((batch, n_q, n_k), float('-inf'))
-mask = torch.triu(mask, diagonal=1)  # 保留下三角 ≤0, 对角线以上为 -inf
-
-mha = MHA(num_head, dimension_k, dimension_v, d_k, d_v, d_o)
-attention, output = mha(q, k, v, mask)
-
-print(attention.size(), output.size())
-
 
 
