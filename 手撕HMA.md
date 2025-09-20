@@ -260,157 +260,89 @@ if __name__ == "__main__":
   
 
 ---
-## 自注意力”实现，接口固定 Q=K=V=x
-只传一个 x（自注意力）；支持同时传 padding 掩码与自定义/因果掩码；可选返回权重。
-SelfAttention：支持
-key_padding_mask（形状 (B, L)，屏蔽 padding）
-attn_mask（形状 (L, L) 或 (B, 1/H, L, L)，布尔或加性皆可）
-causal=True 时自动下三角因果屏蔽
-并带 Dropout 于注意力权重
-```python
+## 简单清晰版
 import torch
 import torch.nn as nn
 import math
 
-class SelfAttention(nn.Module):
-    """
-    从零实现的多头自注意力（batch_first 版本）
-
-    输入/输出形状：
-    - 输入 x: (batch, seq_len, embed_dim)
-    - 输出 y: (batch, seq_len, embed_dim)
-
-    参数：
-    - embed_dim: 模型维度 d_model
-    - num_heads: 注意力头数 h（要求 embed_dim 可被整除）
-    - dropout: 注意力权重上的 dropout 概率
-    - bias: 线性层是否带偏置
-    - causal: 是否使用因果掩码（用于自回归解码）
-    """
-
-    def __init__(self, embed_dim: int, num_heads: int, dropout: float = 0.0, bias: bool = True, causal: bool = False) -> None:
+class MHA(nn.Module):
+    def __init__(self, num_head, dimension_k, dimension_v, d_k, d_v, d_o, dropout=0.1):
         super().__init__()
-        assert embed_dim % num_heads == 0, "embed_dim must be divisible by num_heads"
+        self.num_head = num_head
+        self.d_k = d_k
+        self.d_v = d_v
+        self.d_o = d_o
 
-        self.embed_dim = embed_dim
-        self.num_heads = num_heads
-        self.head_dim = embed_dim // num_heads
-        self.causal = causal
+        # 线性映射到多头空间
+        self.fc_q = nn.Linear(dimension_k, num_head * d_k)
+        self.fc_k = nn.Linear(dimension_k, num_head * d_k)
+        self.fc_v = nn.Linear(dimension_v, num_head * d_v)
 
-        # 分别为 Q/K/V 的投影层
-        self.w_q = nn.Linear(embed_dim, embed_dim, bias=bias)
-        self.w_k = nn.Linear(embed_dim, embed_dim, bias=bias)
-        self.w_v = nn.Linear(embed_dim, embed_dim, bias=bias)
+        self.dropout = nn.Dropout(dropout)
+        self.fc_o = nn.Linear(num_head * d_v, d_o)
+        self.softmax = nn.Softmax(dim=-1)  # 对最后一维(n_k)做softmax
 
-        # 头拼接后的输出投影
-        self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
+    def forward(self, q, k, v, mask):
+        # q: (b, n_q, dimension_k)
+        # k: (b, n_k, dimension_k)
+        # v: (b, n_v, dimension_v)
+        b, n_q, _ = q.size()
+        _, n_k, _ = k.size()
+        _, n_v, _ = v.size()
+        h = self.num_head
 
-        self.attn_dropout = nn.Dropout(dropout) if dropout and dropout > 0 else nn.Identity()
+        # 线性映射
+        q = self.fc_q(q)  # (b, n_q, h*d_k)
+        k = self.fc_k(k)  # (b, n_k, h*d_k)
+        v = self.fc_v(v)  # (b, n_v, h*d_v)
 
-    def _shape_to_heads(self, x: torch.Tensor) -> torch.Tensor:
-        """(B, L, D) -> (B, H, L, Dh)"""
-        batch_size, seq_len, _ = x.shape
-        x = x.view(batch_size, seq_len, self.num_heads, self.head_dim)
-        return x.transpose(1, 2)  # (B, H, L, Dh)
+        # 变形 → 拆成多头
+        Q = q.view(b, n_q, h, self.d_k).transpose(1, 2)  # (b, h, n_q, d_k)
+        K = k.view(b, n_k, h, self.d_k).transpose(1, 2)  # (b, h, n_k, d_k)
+        V = v.view(b, n_v, h, self.d_v).transpose(1, 2)  # (b, h, n_v, d_v)
 
-    def _merge_heads(self, x: torch.Tensor) -> torch.Tensor:
-        """(B, H, L, Dh) -> (B, L, D)"""
-        batch_size, num_heads, seq_len, head_dim = x.shape
-        x = x.transpose(1, 2).contiguous().view(batch_size, seq_len, num_heads * head_dim)
-        return x
+        # 注意力分数
+        scores = torch.matmul(Q, K.transpose(-1, -2)) / math.sqrt(self.d_k)  # (b, h, n_q, n_k)
 
-    def _apply_masks(self, attn_scores: torch.Tensor, attn_mask: torch.Tensor | None, key_padding_mask: torch.Tensor | None) -> torch.Tensor:
-        """
-        - attn_scores: (B, H, Lq, Lk)
-        - attn_mask:   (Lq, Lk) 或 (B, 1/H, Lq, Lk) 的加性掩码（True/1 为要屏蔽的位置时会被置为 -inf）
-        - key_padding_mask: (B, Lk)，True/1 表示该 key 位置是 padding 需要屏蔽
-        """
-        if attn_mask is not None:
-            if attn_mask.dtype == torch.bool:
-                mask_add = torch.where(attn_mask, torch.finfo(attn_scores.dtype).min, torch.zeros(1, dtype=attn_scores.dtype, device=attn_scores.device))
-            else:
-                mask_add = attn_mask
-            # 兼容 (Lq, Lk) 或 (B, 1/H, Lq, Lk)
-            while mask_add.dim() < attn_scores.dim():
-                mask_add = mask_add.unsqueeze(0)
-            attn_scores = attn_scores + mask_add
+        # 应用mask
+        mask = mask.unsqueeze(1)
+        scores = scores + mask  # mask中允许位置为0，禁止位置为-inf
 
-        if key_padding_mask is not None:
-            # key_padding_mask: True 处屏蔽，对应最后一维 Lk
-            # 扩展到 (B, 1, 1, Lk)
-            kpm = key_padding_mask.unsqueeze(1).unsqueeze(1)  # (B,1,1,Lk)
-            attn_scores = attn_scores.masked_fill(kpm, torch.finfo(attn_scores.dtype).min)
+        # softmax + dropout
+        attn = self.softmax(scores)   # (b, h, n_q, n_k)
+        attn = self.dropout(attn)
 
-        if self.causal:
-            # 生成下三角因果掩码，形状 (Lq, Lk)
-            Lq, Lk = attn_scores.size(-2), attn_scores.size(-1)
-            causal_mask = torch.ones(Lq, Lk, dtype=torch.bool, device=attn_scores.device).triu(1)
-            attn_scores = attn_scores.masked_fill(causal_mask, torch.finfo(attn_scores.dtype).min)
+        # 加权求和得到值向量
+        head_out = torch.matmul(attn, V)  # (b, h, n_q, d_v)
 
-        return attn_scores
+        # 合并多头
+        head_out = head_out.transpose(1, 2).contiguous().view(b, n_q, h * self.d_v)
 
-    def forward(
-        self,
-        x: torch.Tensor,
-        key_padding_mask: torch.Tensor | None = None,
-        attn_mask: torch.Tensor | None = None,
-        need_weights: bool = False,
-    ) -> tuple[torch.Tensor, torch.Tensor | None]:
-        """
-        自注意力前向：Q=K=V=x
-
-        参数：
-        - x: (B, L, D)
-        - key_padding_mask: (B, L) 的布尔张量，True 表示该位置为 padding
-        - attn_mask: (L, L) 或 (B, 1/H, L, L) 的加性掩码/布尔掩码
-        - need_weights: 是否返回注意力权重
-        返回：
-        - y: (B, L, D)
-        - attn_weights (可选): (B, H, L, L)
-        """
-        batch_size, seq_len, _ = x.shape
-
-        # 线性投影
-        q = self.w_q(x)
-        k = self.w_k(x)
-        v = self.w_v(x)
-
-        # 多头重排
-        Q = self._shape_to_heads(q)
-        K = self._shape_to_heads(k)
-        V = self._shape_to_heads(v)
-
-        # 打分并缩放
-        attn_scores = torch.matmul(Q, K.transpose(-2, -1))  # (B,H,L,L)
-        attn_scores = attn_scores / math.sqrt(self.head_dim)
-
-        # 掩码（padding/causal/自定义）
-        attn_scores = self._apply_masks(attn_scores, attn_mask, key_padding_mask)
-
-        # softmax -> dropout -> 与 V 相乘
-        attn_weights = torch.softmax(attn_scores, dim=-1)
-        attn_weights = self.attn_dropout(attn_weights)
-        context = torch.matmul(attn_weights, V)  # (B,H,L,Dh)
-
-        # 合并多头并输出投影
-        context = self._merge_heads(context)  # (B,L,D)
-        y = self.out_proj(context)
-
-        if need_weights:
-            return y, attn_weights
-        return y, None
+        # 输出投影
+        out = self.fc_o(head_out)  # (b, n_q, d_o)
+        return attn, out
 
 
-if __name__ == "__main__":
-    torch.manual_seed(0)
-    B, L, D, H = 2, 5, 32, 4
-    x = torch.randn(B, L, D)
+# ----------- 主代码 -----------
+batch = 10
+num_head = 8
+n_q, n_k, n_v = 4, 4, 4
+dimension_q = dimension_k = 128
+dimension_v = 64
+d_k, d_v, d_o = 16, 16, 8   # h*d_v=128 -> 映射到 d_o=8
 
-    sa = SelfAttention(embed_dim=D, num_heads=H, dropout=0.1, causal=False)
-    y, attn = sa(x, key_padding_mask=None, attn_mask=None, need_weights=True)
+q = torch.randn(batch, n_q, dimension_q)
+k = torch.randn(batch, n_k, dimension_k)
+v = torch.randn(batch, n_v, dimension_v)
 
-    print("input:", x.shape)
-    print("output:", y.shape)
-    print("attn:", None if attn is None else attn.shape)
+# 构造一个上三角mask（未来位置置-inf）
+mask = torch.full((batch, n_q, n_k), float('-inf'))
+mask = torch.triu(mask, diagonal=1)  # 保留下三角 ≤0, 对角线以上为 -inf
+
+mha = MHA(num_head, dimension_k, dimension_v, d_k, d_v, d_o)
+attention, output = mha(q, k, v, mask)
+
+print(attention.size(), output.size())
+
 
 
