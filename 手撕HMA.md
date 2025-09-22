@@ -25,7 +25,7 @@ class MHA(nn.Module):
         # q: (b, n_q, dimension_k)
         # k: (b, n_k, dimension_k)
         # v: (b, n_v, dimension_v)
-        b, n_q, _ = q.size()
+        b, n_q, _ = q.size()#取出批大小 b、查询长度 n_q，忽略最后一维（用 _ 占位表示不用）
         _, n_k, _ = k.size()
         _, n_v, _ = v.size()
         h = self.num_head
