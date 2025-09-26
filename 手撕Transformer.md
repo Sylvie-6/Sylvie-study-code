@@ -320,6 +320,9 @@ if __name__ == "__main__":
     logits = model(src, trg)
     print("src:", src.shape, "trg:", trg.shape, "logits:", logits.shape)
 ```
+
+
+
 ---
 ## Transformer框架，不包含编解码器实现
 ```python
