@@ -43,6 +43,7 @@ if __name__ == "__main__":
     print("每行的和:")
     print(np.sum(softmax(x), axis=1))  # 每行的和都应该接近1
 ```
+---
 # 交叉熵损失函数
 ```python
 import torch
@@ -99,4 +100,130 @@ sample_labels = torch.randint(0, 4, size=(5,))
 # 直接用 PyTorch 内置交叉熵函数（推荐，数值稳定性更好）
 loss = F.cross_entropy(sample_logits, sample_labels)
 print("内置交叉熵损失：", loss.item())
+```
+---
+# KNN
+```python
+import numpy as np
+from collections import Counter
+
+class KNN:
+    def __init__(self, k=3):
+        """初始化KNN分类器（默认k=3）"""
+        self.k = k
+        self.X_train = None  # 训练样本特征
+        self.y_train = None  # 训练样本标签
+    
+    def fit(self, X, y):
+        """训练：KNN为“惰性学习”，仅存储训练数据"""
+        self.X_train = X
+        self.y_train = y
+    
+    def predict(self, X_test):
+        """预测：对每个测试样本，找k个最近邻并投票"""
+        predictions = []
+        for x in X_test:
+            # 1. 计算测试样本与所有训练样本的**欧氏距离**
+            distances = np.sqrt(np.sum((self.X_train - x) ** 2, axis=1))
+            
+            # 2. 按距离排序，取前k个样本的**索引**
+            k_indices = np.argsort(distances)[:self.k]
+            
+            # 3. 提取k个样本的**标签**
+            k_labels = self.y_train[k_indices]
+            
+            # 4. 多数投票（统计出现次数最多的标签）
+            most_common = Counter(k_labels).most_common(1)[0][0]
+            predictions.append(most_common)
+        
+        return np.array(predictions)
+
+
+# ------------------- 测试用例（面试时可快速演示） ------------------- #
+if __name__ == "__main__":
+    # 模拟训练数据：4个样本，2个特征，标签为0/1
+    X_train = np.array([[1, 2], [2, 3], [3, 4], [6, 7]])
+    y_train = np.array([0, 0, 0, 1])
+    
+    # 模拟测试数据：2个待预测样本
+    X_test = np.array([[4, 5], [7, 8]])
+    
+    # 初始化并“训练”KNN
+    knn = KNN(k=3)
+    knn.fit(X_train, y_train)
+    
+    # 预测并打印结果
+    y_pred = knn.predict(X_test)
+    print("测试样本的预测类别：", y_pred)
+```
+---
+# K-Means
+```python
+import numpy as np
+
+class KMeans:
+    def __init__(self, n_clusters=2, max_iter=100, tol=1e-4):
+        """
+        初始化KMeans聚类器
+        :param n_clusters: 聚类数量(k)
+        :param max_iter: 最大迭代次数
+        :param tol: 质心变化阈值，小于此值认为收敛
+        """
+        self.n_clusters = n_clusters
+        self.max_iter = max_iter
+        self.tol = tol
+        self.centroids = None  # 质心数组
+
+    def fit(self, X):
+        """
+        训练KMeans模型
+        :param X: 输入数据，形状为(n_samples, n_features)
+        """
+        # 1. 初始化质心：从样本中随机选择k个作为初始质心
+        np.random.seed(42)  # 固定随机种子，保证结果可复现
+        self.centroids = X[np.random.choice(X.shape[0], self.n_clusters, replace=False)]
+        
+        for _ in range(self.max_iter):
+            # 2. 分配样本：计算每个样本到质心的距离，分配到最近的簇
+            # 计算距离（欧氏距离的平方，避免开方运算，结果等价）
+            distances = np.sqrt(((X - self.centroids[:, np.newaxis])**2).sum(axis=2))
+            labels = np.argmin(distances, axis=0)  # 每个样本所属簇的索引
+            
+            # 3. 更新质心：计算每个簇的均值作为新质心
+            new_centroids = np.array([X[labels == i].mean(axis=0) for i in range(self.n_clusters)])
+            
+            # 4. 检查收敛：质心变化小于阈值则停止迭代
+            if np.linalg.norm(new_centroids - self.centroids) < self.tol:
+                break
+            
+            self.centroids = new_centroids
+
+    def predict(self, X):
+        """
+        预测样本所属簇
+        :param X: 输入数据，形状为(n_samples, n_features)
+        :return: 每个样本的簇标签
+        """
+        distances = np.sqrt(((X - self.centroids[:, np.newaxis])**2).sum(axis=2))
+        return np.argmin(distances, axis=0)
+
+
+# 测试代码（面试时可快速演示）
+if __name__ == "__main__":
+    # 生成模拟数据（3个簇）
+    X = np.vstack([
+        np.random.normal(0, 0.5, size=(100, 2)),
+        np.random.normal(5, 0.5, size=(100, 2)),
+        np.random.normal(10, 0.5, size=(100, 2))
+    ])
+    
+    # 聚类
+    kmeans = KMeans(n_clusters=3)
+    kmeans.fit(X)
+    labels = kmeans.predict(X)
+    
+    print("质心坐标：")
+    print(kmeans.centroids)
+    print("\n前10个样本的簇标签：")
+    print(labels[:10])
 ```
