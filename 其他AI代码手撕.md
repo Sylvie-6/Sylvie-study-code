@@ -46,49 +46,36 @@ if __name__ == "__main__":
 ---
 # 交叉熵损失函数
 ```python
-import torch
-import torch.nn.functional as F
+import numpy as np
 
-# 定义 softmax 函数（手动实现，也可直接用 F.softmax）
-def softmax(scores):
-    """将 logits 通过 softmax 转换为概率分布，保证数值稳定性"""
-    # scores: 形状为 (样本数, 类别数) 的 torch.Tensor
-    scores_max = torch.max(scores, dim=1, keepdim=True).values  # 按行取最大值（保持维度便于广播）
-    scores_exp = torch.exp(scores - scores_max)  # 减去最大值防止指数溢出
-    return scores_exp / torch.sum(scores_exp, dim=1, keepdim=True)  # 按行归一化
-
-# 定义交叉熵损失函数
-def cross_entropy(pred_scores, true_labels):
-    """手动计算多分类交叉熵损失，包含数值稳定性裁剪"""
-    # pred_scores: 模型输出的 logits，形状 (batch_size, num_classes)
-    # true_labels: 真实类别标签，形状 (batch_size,)，需为 torch.LongTensor 类型
-    probs_matrix = softmax(pred_scores)  # 转换为概率分布
-    n_samples = true_labels.shape[0]     # 样本数量
+def cross_entropy_loss(y_true, y_pred_logits):
+    """
+    计算多分类交叉熵损失（输入为模型输出的logits，未经过Softmax）
+    :param y_true: 真实标签，形状为[样本数, 类别数]，one-hot编码（如[0,1,0]）
+    :param y_pred_logits: 模型原始输出（logits），形状为[样本数, 类别数]
+    :return: 平均交叉熵损失（标量）
+    """
+    # 步骤1：Softmax计算（加最大值做数值稳定）
+    exp_logits = np.exp(y_pred_logits - np.max(y_pred_logits, axis=1, keepdims=True))
+    y_pred_softmax = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
     
-    # 限制概率范围，避免 log(0) 或 log(1) 导致数值问题
-    eps = 1e-12
-    probs_matrix = torch.clamp(probs_matrix, eps, 1.0 - eps)
+    # 步骤2：计算交叉熵（加epsilon避免log(0)）
+    epsilon = 1e-10  # 极小值，防止数值错误
+    cross_entropy = -np.sum(y_true * np.log(y_pred_softmax + epsilon), axis=1)
     
-    # 提取每个样本“真实标签对应的预测概率”
-    correct_class_probs = probs_matrix[torch.arange(n_samples), true_labels]
+    # 步骤3：返回平均损失（对所有样本求平均）
+    return np.mean(cross_entropy)
+
+# 测试代码
+if __name__ == "__main__":
+    # 模拟1个样本，3分类任务：真实标签为类别1（one-hot），模型logits输出
+    y_true = np.array([[0, 1, 0]])  # 真实标签（one-hot）
+    y_pred_logits = np.array([[2.0, 5.0, 1.0]])  # 模型原始输出（未Softmax）
     
-    # 计算负对数似然并求平均
-    log_likelihood = -torch.log(correct_class_probs)
-    return torch.sum(log_likelihood) / n_samples
-
-# ------------------- 示例：生成数据并测试 ------------------- #
-torch.manual_seed(42)  # 固定随机种子以保证结果可复现
-
-# 模拟模型输出：5 个样本，每个样本有 4 个类别得分（logits）
-sample_logits = torch.randn(5, 4)  
-
-# 模拟真实标签：5 个样本的类别（取值 0~3）
-sample_labels = torch.randint(0, 4, size=(5,))  
-
-# 计算交叉熵损失
-loss = cross_entropy(sample_logits, sample_labels)
-print("交叉熵损失：", loss.item())
+    loss = cross_entropy_loss(y_true, y_pred_logits)
+    print("平均交叉熵损失:", loss)  # 输出约0.0189（符合预期，模型对正确类别预测置信度高）
 ```
+
 ```python
 import torch
 import torch.nn.functional as F
@@ -226,4 +213,113 @@ if __name__ == "__main__":
     print(kmeans.centroids)
     print("\n前10个样本的簇标签：")
     print(labels[:10])
+```
+
+# 2D卷积
+### 包含stride和padding
+```python
+import numpy as np
+
+def conv2d_full(inputs, kernels, stride=1, padding=0):
+    """
+    2D卷积完整实现（支持stride和padding）
+    :param inputs: 输入特征图，形状为[H, W, C]（高、宽、通道数）
+    :param kernels: 卷积核，形状为[K, K, C, N]（核高、核宽、输入通道数、输出通道数）
+    :param stride: 步长，默认1（横向/纵向步长相同）
+    :param padding: 零填充数，默认0（上下/左右各填充padding层）
+    :return: 输出特征图，形状为[H_out, W_out, N]
+    """
+    # 1. 解析输入和卷积核维度
+    H, W, C = inputs.shape  # 输入高、宽、通道数
+    K, _, C_kernel, N = kernels.shape  # 核高、输入通道数、输出通道数
+    
+    # 2. 合法性检查（输入通道数需与卷积核输入通道数一致）
+    assert C == C_kernel, f"输入通道数{C}与卷积核输入通道数{C_kernel}不匹配"
+    
+    # 3. 对输入进行零填充（上下左右各补padding行/列）
+    padded_input = np.pad(
+        inputs, 
+        pad_width=((padding, padding), (padding, padding), (0, 0)),  # (高方向补, 宽方向补, 通道不补)
+        mode='constant',  # 填充0
+        constant_values=0
+    )
+    
+    # 4. 计算输出特征图尺寸（卷积尺寸公式）
+    H_out = (H + 2 * padding - K) // stride + 1  # 输出高
+    W_out = (W + 2 * padding - K) // stride + 1  # 输出宽
+    
+    # 5. 初始化输出特征图（全0）
+    output = np.zeros((H_out, W_out, N))
+    
+    # 6. 滑动窗口计算卷积（遍历输出每个像素、每个输出通道）
+    for n in range(N):  # 遍历输出通道（每个通道对应1个卷积核）
+        for h in range(H_out):  # 遍历输出高维度
+            for w in range(W_out):  # 遍历输出宽维度
+                # 计算当前滑动窗口在填充后输入上的起始位置
+                h_start = h * stride
+                h_end = h_start + K
+                w_start = w * stride
+                w_end = w_start + K
+                
+                # 提取输入窗口（[K, K, C]）和当前卷积核（[K, K, C]）
+                input_window = padded_input[h_start:h_end, w_start:w_end, :]
+                kernel = kernels[:, :, :, n]
+                
+                # 卷积计算：窗口与核元素相乘 → 所有元素求和 → 存入输出
+                output[h, w, n] = np.sum(input_window * kernel)
+    
+    return output
+
+# ---------------------- 测试代码 ----------------------
+if __name__ == "__main__":
+    # 模拟输入：28x28灰度图（通道数C=1）
+    input_img = np.random.randn(28, 28, 1)  # [28,28,1]
+    # 模拟卷积核：3x3大小，输入通道1，输出通道4（4个卷积核）
+    kernels = np.random.randn(3, 3, 1, 4)  # [3,3,1,4]
+    
+    # 测试1：stride=1, padding=0（无填充，步长1）
+    output1 = conv2d_full(input_img, kernels, stride=1, padding=0)
+    print("测试1输出尺寸（stride=1, padding=0）:", output1.shape)  # 输出 (26,26,4)（28-3+1=26）
+    
+    # 测试2：stride=2, padding=1（补1层零，步长2）
+    output2 = conv2d_full(input_img, kernels, stride=2, padding=1)
+    print("测试2输出尺寸（stride=2, padding=1）:", output2.shape)  # 输出 (14,14,4)（(28+2-3)/2+1=14）
+```
+### 无stride和padding
+```python
+import numpy as np
+
+def conv2d_simple(inputs, kernels):
+    """
+    2D卷积简化实现（固定stride=1，padding=0）
+    :param inputs: 输入特征图，形状[H, W, C]
+    :param kernels: 卷积核，形状[K, K, C, N]
+    :return: 输出特征图，形状[H-K+1, W-K+1, N]
+    """
+    # 解析维度
+    H, W, C = inputs.shape
+    K, _, C_kernel, N = kernels.shape
+    # 计算输出尺寸（无padding、stride=1，直接用输入尺寸减核尺寸加1）
+    H_out = H - K + 1
+    W_out = W - K + 1
+    # 初始化输出
+    output = np.zeros((H_out, W_out, N))
+    
+    # 滑动窗口卷积（核心逻辑与完整版本一致）
+    for n in range(N):
+        for h in range(H_out):
+            for w in range(W_out):
+                # 输入窗口：无需计算stride（固定1），直接从h/w开始取K大小
+                input_window = inputs[h:h+K, w:w+K, :]
+                kernel = kernels[:, :, :, n]
+                output[h, w, n] = np.sum(input_window * kernel)
+    
+    return output
+
+# ---------------------- 测试代码 ----------------------
+if __name__ == "__main__":
+    input_img = np.random.randn(28, 28, 1)  # [28,28,1]
+    kernels = np.random.randn(3, 3, 1, 2)  # [3,3,1,2]
+    output = conv2d_simple(input_img, kernels)
+    print("简化版输出尺寸:", output.shape)  # 输出 (26,26,2)（28-3+1=26）
 ```
