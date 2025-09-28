@@ -192,7 +192,7 @@ class KMeans:
         :return: 每个样本的簇标签
         """
         distances = np.sqrt(((X - self.centroids[:, np.newaxis])**2).sum(axis=2))
-        return np.argmin(distances, axis=0)
+        return np.argmin(distances, axis=0) #沿着“样本数量”这个维度（即每一列） 找最小值的索引
 
 
 # 测试代码（面试时可快速演示）
