@@ -324,3 +324,74 @@ if __name__ == "__main__":
     output = conv2d_simple(input_img, kernels)
     print("简化版输出尺寸:", output.shape)  # 输出 (26,26,2)（28-3+1=26）
 ```
+# CNN池化
+### 平均池化
+```python
+import numpy as np
+
+def avg_pool2d(inputs, ksize=2, stride=2):
+    """
+    2D平均池化实现（通道独立，默认丢弃边界不完整窗口）
+    :param inputs: 输入特征图，形状为[H, W, C]（高、宽、通道数）
+    :param ksize: 池化核大小，默认2（正方形核，ksize×ksize）
+    :param stride: 滑动步长，默认2（横向/纵向步长相同）
+    :return: 输出特征图，形状为[H_out, W_out, C]
+    """
+    # 1. 解析输入维度：H(高)、W(宽)、C(通道数)
+    H, W, C = inputs.shape
+    
+    # 2. 计算输出特征图尺寸（丢弃边界不完整窗口，确保窗口完全在输入内）
+    # 公式：输出尺寸 = (输入尺寸 - 池化核大小) // 步长 + 1
+    H_out = (H - ksize) // stride + 1
+    W_out = (W - ksize) // stride + 1
+    
+    # 3. 初始化输出特征图（通道数与输入一致，高宽为计算出的H_out/W_out）
+    output = np.zeros((H_out, W_out, C), dtype=inputs.dtype)
+    
+    # 4. 遍历计算：通道独立处理，每个通道单独做平均池化
+    for c in range(C):  # 遍历每个通道（池化不跨通道，通道间独立）
+        for h in range(H_out):  # 遍历输出的高维度
+            for w in range(W_out):  # 遍历输出的宽维度
+                # 计算当前池化窗口在输入上的起始/结束坐标
+                h_start = h * stride  # 窗口起始高
+                h_end = h_start + ksize  # 窗口结束高（左闭右开）
+                w_start = w * stride  # 窗口起始宽
+                w_end = w_start + ksize  # 窗口结束宽
+                
+                # 提取当前通道的输入窗口（形状：[ksize, ksize]）
+                input_window = inputs[h_start:h_end, w_start:w_end, c]
+                
+                # 窗口内元素求平均，赋值给输出对应位置
+                output[h, w, c] = np.mean(input_window)
+    
+    return output
+
+# ---------------------- 测试代码 ----------------------
+if __name__ == "__main__":
+    # 1. 测试1：小尺寸输入（验证基础功能）
+    # 输入：4x4x1（高4、宽4、1通道，模拟灰度特征图）
+    input_small = np.array([
+        [[1], [2], [3], [4]],
+        [[5], [6], [7], [8]],
+        [[9], [10], [11], [12]],
+        [[13], [14], [15], [16]]
+    ])
+    # 池化：核大小2×2，步长2
+    output_small = avg_pool2d(input_small, ksize=2, stride=2)
+    print("测试1 - 小尺寸输入输出:")
+    print("输入形状:", input_small.shape)  # 输出: (4, 4, 1)
+    print("输出形状:", output_small.shape)  # 输出: (2, 2, 1)（(4-2)//2+1=2）
+    print("输出值:\n", output_small.squeeze())  #  squeeze()去除通道维度，输出: [[3.5, 5.5], [11.5, 13.5]]
+
+    # 2. 测试2：多通道输入（模拟RGB类特征图）
+    # 输入：28x28x3（高28、宽28、3通道）
+    input_rgb = np.random.randn(28, 28, 3)
+    # 池化：核大小3×3，步长1（无下采样，仅平滑）
+    output_rgb = avg_pool2d(input_rgb, ksize=3, stride=1)
+    print("\n测试2 - 多通道输入输出:")
+    print("输入形状:", input_rgb.shape)  # 输出: (28, 28, 3)
+    print("输出形状:", output_rgb.shape)  # 输出: (26, 26, 3)（(28-3)//1+1=26）
+```
+### 最大池化
+将代码中`np.mean(input_window)`替换为
+`np.max(input_window)`，逻辑完全一致，仅窗口内聚合方式不同。
