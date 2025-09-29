@@ -90,6 +90,7 @@ print("内置交叉熵损失：", loss.item())
 ```
 ---
 # KNN
+时间复杂度：`O(n×m)`
 ```python
 import numpy as np
 from collections import Counter
