@@ -178,7 +178,7 @@ class KMeans:
             # 计算距离（欧氏距离的平方，避免开方运算，结果等价）
             distances = np.sqrt(((X - self.centroids[:, np.newaxis])**2).sum(axis=2))
             # self.centroids[:, np.newaxis]：扩展质心维度，为广播做准备
-            # [:, np.newaxis] 是在数组的第二维度插入一个新轴（增加一个维度），将形状从 (n_clusters, n_features) 变为 (n_clusters, 1, n_features)
+            # [:, np.newaxis] 是在数组的第二维度插入一个新轴（增加一个维度），将形状从 (n_clusters, n_features) 变为 (n_clusters, 1, n_features)。（比如插在第三个维度应该是[:, :, np.newaxis]）
             # .sum(axis=2)：对特征维度求和
             
             labels = np.argmin(distances, axis=0)  # 每个样本所属簇的索引 np.argmin 是 NumPy 中用于查找 “最小值索引” 的函数。axis=0 表示 “沿着第一个维度（质心维度）查找最小值”。
