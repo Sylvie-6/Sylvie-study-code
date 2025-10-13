@@ -185,6 +185,7 @@ class KMeans:
             
             # 3. 更新质心：计算每个簇的均值作为新质心
             new_centroids = np.array([X[labels == i].mean(axis=0) for i in range(self.n_clusters)])
+            # X[labels == i] 通过布尔索引从原始数据 X 中提取 “属于第 i 个簇” 的所有样本。
             
             # 4. 检查收敛：质心变化小于阈值则停止迭代
             if np.linalg.norm(new_centroids - self.centroids) < self.tol:
