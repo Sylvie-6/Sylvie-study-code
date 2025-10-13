@@ -216,6 +216,117 @@ if __name__ == "__main__":
     print(labels[:10])
 ```
 ---
+# 线性回归
+```python
+import numpy as np
+
+class LinearRegressionGD:
+    def __init__(self, learning_rate=0.01, n_iterations=1000):
+        self.lr = learning_rate    # 学习率
+        self.n_iter = n_iterations # 迭代次数
+        self.weights = None        # 特征权重
+        self.bias = None           # 偏置项
+
+    def fit(self, X, y):
+        n_samples, n_features = X.shape
+        # 初始化参数（权重为0，偏置为0）
+        self.weights = np.zeros(n_features)
+        self.bias = 0
+
+        for _ in range(self.n_iter):
+            # 前向传播：计算预测值
+            y_pred = np.dot(X, self.weights) + self.bias
+            # 计算梯度（均方误差对权重、偏置的导数）
+            dw = (1 / n_samples) * np.dot(X.T, (y_pred - y))
+            db = (1 / n_samples) * np.sum(y_pred - y)
+            # 梯度下降更新参数
+            self.weights -= self.lr * dw
+            self.bias -= self.lr * db
+
+    def predict(self, X):
+        # 用学习到的参数做预测
+        return np.dot(X, self.weights) + self.bias
+
+
+# 测试：生成模拟数据并训练
+if __name__ == "__main__":
+    np.random.seed(42)
+    # 生成特征（100个样本，1个特征）
+    X = np.random.rand(100, 1)
+    # 真实关系：y = 2x + 3 + 随机噪声
+    y = 2 * X.squeeze() + 3 + np.random.randn(100) * 0.1
+
+    model = LinearRegressionGD(learning_rate=0.1, n_iterations=1000)
+    model.fit(X, y)
+    
+    print("学习到的权重:", model.weights)   # 应接近 [2.]
+    print("学习到的偏置:", model.bias)     # 应接近 3.
+    
+    # 预测示例
+    X_test = np.array([[0], [1]])
+    print("测试预测值:", model.predict(X_test))
+```
+---
+# 逻辑回归
+```python
+import numpy as np
+
+class LogisticRegressionGD:
+    def __init__(self, learning_rate=0.01, n_iterations=1000):
+        self.lr = learning_rate    # 学习率
+        self.n_iter = n_iterations # 迭代次数
+        self.weights = None        # 特征权重
+        self.bias = None           # 偏置项
+
+    def sigmoid(self, z):
+        # sigmoid激活函数：将线性输出映射到(0,1)概率区间
+        return 1 / (1 + np.exp(-z))
+
+    def fit(self, X, y):
+        n_samples, n_features = X.shape
+        # 初始化参数（权重为0，偏置为0）
+        self.weights = np.zeros(n_features)
+        self.bias = 0
+
+        for _ in range(self.n_iter):
+            # 前向传播：计算正类概率
+            z = np.dot(X, self.weights) + self.bias
+            y_pred_proba = self.sigmoid(z)
+            # 计算梯度（交叉熵损失对权重、偏置的导数）
+            dw = (1 / n_samples) * np.dot(X.T, (y_pred_proba - y))
+            db = (1 / n_samples) * np.sum(y_pred_proba - y)
+            # 梯度下降更新参数
+            self.weights -= self.lr * dw
+            self.bias -= self.lr * db
+
+    def predict_proba(self, X):
+        # 预测“属于正类”的概率
+        z = np.dot(X, self.weights) + self.bias
+        return self.sigmoid(z)
+
+    def predict(self, X, threshold=0.5):
+        # 根据概率阈值（默认0.5）预测类别（0或1）
+        proba = self.predict_proba(X)
+        return (proba >= threshold).astype(int)
+
+
+# 测试：生成模拟二分类数据并训练
+if __name__ == "__main__":
+    np.random.seed(42)
+    # 生成特征（100个样本，2个特征）
+    X = np.random.randn(100, 2)
+    # 真实分类规则：y=1 当 2x₁ - 3x₂ + 1 > 0
+    y = (2 * X[:, 0] - 3 * X[:, 1] + 1 > 0).astype(int)
+
+    model = LogisticRegressionGD(learning_rate=0.1, n_iterations=1000)
+    model.fit(X, y)
+    
+    # 预测示例
+    X_test = np.array([[0, 0], [1, 1]])
+    print("正类概率预测:", model.predict_proba(X_test))
+    print("类别预测:", model.predict(X_test))
+```
+---
 # 2D卷积
 ### 包含stride和padding
 ```python
