@@ -121,7 +121,7 @@ class KNN:
             k_labels = self.y_train[k_indices]
             
             # 4. 多数投票（统计出现次数最多的标签）
-            most_common = Counter(k_labels).most_common(1)[0][0]
+            most_common = Counter(k_labels).most_common(1)[0][0]  #.most_common(1)1：这是 Counter 对象的一个方法，用于返回出现次数最多的元素及其计数
             predictions.append(most_common)
         
         return np.array(predictions)
@@ -160,7 +160,7 @@ class KMeans:
         self.n_clusters = n_clusters
         self.max_iter = max_iter
         self.tol = tol
-        self.centroids = None  # 质心数组
+        self.centroids = None  # 对 “质心数组” 的初始化占位
 
     def fit(self, X):
         """
@@ -170,12 +170,18 @@ class KMeans:
         # 1. 初始化质心：从样本中随机选择k个作为初始质心
         np.random.seed(42)  # 固定随机种子，保证结果可复现
         self.centroids = X[np.random.choice(X.shape[0], self.n_clusters, replace=False)]
+        # np.random.choice(..., ..., ...)：NumPy 的随机选择函数，用于从指定范围中随机挑选元素
+        # replace=False：指定 “不允许重复选择”
         
         for _ in range(self.max_iter):
             # 2. 分配样本：计算每个样本到质心的距离，分配到最近的簇
             # 计算距离（欧氏距离的平方，避免开方运算，结果等价）
             distances = np.sqrt(((X - self.centroids[:, np.newaxis])**2).sum(axis=2))
-            labels = np.argmin(distances, axis=0)  # 每个样本所属簇的索引
+            # self.centroids[:, np.newaxis]：扩展质心维度，为广播做准备
+            # [:, np.newaxis] 是在数组的第二维度插入一个新轴（增加一个维度），将形状从 (n_clusters, n_features) 变为 (n_clusters, 1, n_features)
+            # .sum(axis=2)：对特征维度求和
+            
+            labels = np.argmin(distances, axis=0)  # 每个样本所属簇的索引 np.argmin 是 NumPy 中用于查找 “最小值索引” 的函数。axis=0 表示 “沿着第一个维度（质心维度）查找最小值”。
             
             # 3. 更新质心：计算每个簇的均值作为新质心
             new_centroids = np.array([X[labels == i].mean(axis=0) for i in range(self.n_clusters)])
