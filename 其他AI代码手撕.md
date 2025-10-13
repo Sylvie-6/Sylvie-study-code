@@ -517,7 +517,128 @@ if __name__ == "__main__":
 ---
 # 手撕神经网络
 ## CNN
+```python
+import numpy as np
 
+class ConvLayer:
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1):
+        """
+        初始化卷积层
+        :param in_channels: 输入特征图通道数
+        :param out_channels: 输出特征图通道数（卷积核数量）
+        :param kernel_size: 卷积核大小（边长，假设为正方形）
+        :param stride: 步长
+        """
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = kernel_size
+        self.stride = stride
+        
+        # 初始化卷积核（权重）和偏置，采用小随机数初始化
+        self.kernels = np.random.randn(out_channels, kernel_size, kernel_size, in_channels) * 0.01
+        self.biases = np.zeros((out_channels, 1))  # 每个卷积核对应一个偏置
+
+    def forward(self, x):
+        """
+        卷积层前向传播
+        :param x: 输入特征图，形状 (batch_size, height, width, in_channels)
+        :return: 输出特征图，形状 (batch_size, out_height, out_width, out_channels)
+        """
+        batch_size, h, w, _ = x.shape
+        
+        # 计算输出特征图尺寸（简化版：不考虑填充padding）
+        out_h = (h - self.kernel_size) // self.stride + 1
+        out_w = (w - self.kernel_size) // self.stride + 1
+        
+        # 初始化输出特征图
+        output = np.zeros((batch_size, out_h, out_w, self.out_channels))
+        
+        # 对每个样本进行卷积操作
+        for i in range(batch_size):
+            # 对每个输出通道（每个卷积核）
+            for c_out in range(self.out_channels):
+                kernel = self.kernels[c_out]  # 当前卷积核 (kernel_size, kernel_size, in_channels)
+                bias = self.biases[c_out]     # 当前卷积核的偏置
+                
+                # 滑动窗口计算卷积
+                for h_out in range(out_h):
+                    for w_out in range(out_w):
+                        # 计算当前窗口在输入特征图上的位置
+                        h_start = h_out * self.stride
+                        h_end = h_start + self.kernel_size
+                        w_start = w_out * self.stride
+                        w_end = w_start + self.kernel_size
+                        
+                        # 提取输入窗口（局部感受野）
+                        x_window = x[i, h_start:h_end, w_start:w_end, :]
+                        
+                        # 卷积操作：窗口与卷积核逐元素相乘后求和 + 偏置
+                        output[i, h_out, w_out, c_out] = np.sum(x_window * kernel) + bias
+        
+        return output
+
+
+class MaxPoolingLayer:
+    def __init__(self, pool_size, stride=None):
+        """
+        初始化最大池化层
+        :param pool_size: 池化窗口大小（边长）
+        :param stride: 步长，默认与pool_size相同（无重叠）
+        """
+        self.pool_size = pool_size
+        self.stride = stride if stride is not None else pool_size
+
+    def forward(self, x):
+        """
+        最大池化前向传播
+        :param x: 输入特征图，形状 (batch_size, height, width, channels)
+        :return: 输出特征图，形状 (batch_size, out_height, out_width, channels)
+        """
+        batch_size, h, w, channels = x.shape
+        
+        # 计算输出特征图尺寸
+        out_h = (h - self.pool_size) // self.stride + 1
+        out_w = (w - self.pool_size) // self.stride + 1
+        
+        # 初始化输出特征图
+        output = np.zeros((batch_size, out_h, out_w, channels))
+        
+        # 对每个样本和每个通道进行池化
+        for i in range(batch_size):
+            for c in range(channels):
+                # 滑动窗口计算最大池化
+                for h_out in range(out_h):
+                    for w_out in range(out_w):
+                        # 计算当前窗口在输入特征图上的位置
+                        h_start = h_out * self.stride
+                        h_end = h_start + self.pool_size
+                        w_start = w_out * self.stride
+                        w_end = w_start + self.pool_size
+                        
+                        # 提取输入窗口，取最大值作为池化结果
+                        x_window = x[i, h_start:h_end, w_start:w_end, c]
+                        output[i, h_out, w_out, c] = np.max(x_window)
+        
+        return output
+
+
+# 测试：用随机数据验证CNN前向传播
+if __name__ == "__main__":
+    # 生成输入数据：1个样本，5x5尺寸，3个通道（模拟RGB图像）
+    x = np.random.randn(1, 5, 5, 3)  # 形状 (batch_size=1, height=5, width=5, channels=3)
+    print("输入特征图形状:", x.shape)
+    
+    # 1. 卷积层：3输入通道，2个3x3卷积核，步长1
+    conv_layer = ConvLayer(in_channels=3, out_channels=2, kernel_size=3, stride=1)
+    conv_output = conv_layer.forward(x)
+    print("卷积后输出形状:", conv_output.shape)  # 应为 (1, 3, 3, 2)
+    
+    # 2. 最大池化层：2x2窗口，步长2
+    pool_layer = MaxPoolingLayer(pool_size=2, stride=2)
+    pool_output = pool_layer.forward(conv_output)
+    print("池化后输出形状:", pool_output.shape)  # 应为 (1, 1, 1, 2)
+
+```
 ## GRU
 ```python
 import numpy as np
