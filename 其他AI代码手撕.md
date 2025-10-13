@@ -506,3 +506,89 @@ if __name__ == "__main__":
 ### 最大池化
 将代码中`np.mean(input_window)`替换为
 `np.max(input_window)`，逻辑完全一致，仅窗口内聚合方式不同。
+
+---
+# 手撕神经网络
+## CNN
+
+## GRU
+```python
+import numpy as np
+
+class GRU:
+    def __init__(self, input_dim, hidden_dim):
+        """
+        初始化GRU模型
+        :param input_dim: 输入特征维度
+        :param hidden_dim: 隐藏状态维度
+        """
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        
+        # 初始化权重参数（更新门、重置门、候选隐藏状态）
+        # 输入权重 (input_dim, hidden_dim)
+        self.Wz = np.random.randn(input_dim, hidden_dim) * 0.01  # 更新门输入权重
+        self.Wr = np.random.randn(input_dim, hidden_dim) * 0.01  # 重置门输入权重
+        self.Wh = np.random.randn(input_dim, hidden_dim) * 0.01  # 候选状态输入权重
+        
+        # 隐藏状态权重 (hidden_dim, hidden_dim)
+        self.Uz = np.random.randn(hidden_dim, hidden_dim) * 0.01  # 更新门隐藏权重
+        self.Ur = np.random.randn(hidden_dim, hidden_dim) * 0.01  # 重置门隐藏权重
+        self.Uh = np.random.randn(hidden_dim, hidden_dim) * 0.01  # 候选状态隐藏权重
+        
+        # 偏置 (1, hidden_dim)
+        self.bz = np.zeros((1, hidden_dim))  # 更新门偏置
+        self.br = np.zeros((1, hidden_dim))  # 重置门偏置
+        self.bh = np.zeros((1, hidden_dim))  # 候选状态偏置
+
+    def sigmoid(self, x):
+        """sigmoid激活函数（门控输出范围0~1）"""
+        return 1 / (1 + np.exp(-x))
+
+    def forward(self, x, h_prev):
+        """
+        GRU前向传播（单时间步）
+        :param x: 当前时间步输入，形状 (1, input_dim)
+        :param h_prev: 上一时间步隐藏状态，形状 (1, hidden_dim)
+        :return: 当前时间步隐藏状态h
+        """
+        # 1. 计算更新门 z（控制保留多少历史信息）
+        z = self.sigmoid(np.dot(x, self.Wz) + np.dot(h_prev, self.Uz) + self.bz)
+        
+        # 2. 计算重置门 r（控制如何结合历史信息和当前输入）
+        r = self.sigmoid(np.dot(x, self.Wr) + np.dot(h_prev, self.Ur) + self.br)
+        
+        # 3. 计算候选隐藏状态 h~（基于重置门过滤后的历史信息）
+        h_tilde = np.tanh(np.dot(x, self.Wh) + np.dot(r * h_prev, self.Uh) + self.bh)
+        
+        # 4. 更新隐藏状态 h（z控制历史与候选状态的融合比例）
+        h = (1 - z) * h_prev + z * h_tilde
+        
+        return h
+
+
+# 测试：用序列数据验证GRU前向传播
+if __name__ == "__main__":
+    # 配置参数
+    input_dim = 3    # 输入特征维度
+    hidden_dim = 2   # 隐藏状态维度
+    seq_len = 4      # 序列长度（时间步数）
+    
+    # 初始化GRU
+    gru = GRU(input_dim, hidden_dim)
+    
+    # 生成随机输入序列（seq_len个时间步，每个时间步输入维度为input_dim）
+    x_seq = np.random.randn(seq_len, 1, input_dim)  # 形状 (seq_len, 1, input_dim)
+    
+    # 初始化隐藏状态（初始为0）
+    h_prev = np.zeros((1, hidden_dim))
+    
+    # 按时间步执行GRU前向传播
+    print("时间步 | 隐藏状态h")
+    print("-" * 30)
+    for t in range(seq_len):
+        x_t = x_seq[t]  # 当前时间步输入
+        h_prev = gru.forward(x_t, h_prev)  # 更新隐藏状态
+        print(f"  {t}   | {h_prev.round(4)}")
+```
+
