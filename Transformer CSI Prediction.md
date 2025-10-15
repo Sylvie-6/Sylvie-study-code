@@ -210,8 +210,9 @@ class TransformerDecoderLayer(nn.Module):
         self_attn_output = self.self_attention(x, x, x, tgt_mask)
         x = self.norm1(x + self.dropout(self_attn_output))
 
-        # 编码器-解码器注意力
+        # cross 编码器-解码器注意力
         cross_attn_output = self.cross_attention(x, encoder_output, encoder_output, src_mask)
+        # x:自解码器自注意力后的输出（当前解码状态）, encoder_output:来自编码器的输出（输入序列的特征）
         x = self.norm2(x + self.dropout(cross_attn_output))
 
         # 前馈网络
