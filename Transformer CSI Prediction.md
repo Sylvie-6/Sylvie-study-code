@@ -280,21 +280,15 @@ class TransformerChannelPredictor(nn.Module):
         else:
             return self._recursive_prediction(encoder_output, batch_size, guided_training, target)
 
-    def _multi_step_prediction(self, encoder_output, batch_size):
-        """多步预测"""
-        # 使用编码器最后一个时刻的输出作为解码器输入
-        decoder_input = encoder_output[:, -1:, :]  # (batch_size, 1, d_model)
+        def _multi_step_prediction(self, encoder_output, batch_size):
+            k = self.prediction_length
+            # 用一个“起始token”扩展成长度k的序列（或用最后一个历史时刻的投影）
+            start = self.decoder_start.expand(batch_size, 1, -1)        # [B,1,d_model]
+            decoder_input = start.repeat(1, k, 1).contiguous()          # [B,k,d_model]
+            src_mask, tgt_mask = self.create_masks(encoder_output, decoder_input)
+            dec_out = self.decoder(decoder_input, encoder_output, src_mask, tgt_mask)  # 两层decoder级联
+            return self.output_projection(dec_out)                      # [B,k,2]
 
-        outputs = []
-        for _ in range(self.prediction_length):
-            # 解码器前向传播
-            decoder_output = self.decoder(decoder_input, encoder_output)
-
-            # 输出投影
-            output = self.output_projection(decoder_output)
-            outputs.append(output)
-
-        return torch.cat(outputs, dim=1)
 
     def _recursive_prediction(self, encoder_output, batch_size, guided_training=False, target=None):
         """递归预测"""
@@ -318,8 +312,7 @@ class TransformerChannelPredictor(nn.Module):
             else:
                 # 非引导训练：使用预测值
                 next_input = self.input_projection(output)
-
-            decoder_input = next_input
+            decoder_input = torch.cat([decoder_seq, next_input], dim=1)     # 关键：把新步拼到序列尾部
 
         return torch.cat(outputs, dim=1)
 
